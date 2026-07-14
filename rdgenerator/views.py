@@ -52,6 +52,7 @@ def generator_view(request):
             direction = form.cleaned_data['direction']
             installation = form.cleaned_data['installation']
             settings = form.cleaned_data['settings']
+            disableAccount = form.cleaned_data['disableAccount']
             appname = form.cleaned_data['appname']
             if not appname:
                 appname = "rustdesk"
@@ -104,7 +105,7 @@ def generator_view(request):
             # --- protocol = _settings.PROTOCOL
             # --- host = request.get_host()
             # --- full_url = f"{protocol}://{host}"
-            full_url = f"{protocol}://{host}" if _settings.GENURL else f"{_settings.PROTOCOL}://{request.get_host()}"
+            full_url = _settings.GENURL.rstrip('/') if _settings.GENURL else f"{protocol}://{host}"
             try:
                 iconfile = form.cleaned_data.get('iconfile')
                 if not iconfile:
@@ -144,6 +145,8 @@ def generator_view(request):
                 decodedCustom['disable-installation'] = 'Y'
             if settings == "settingsN":
                 decodedCustom['disable-settings'] = 'Y'
+            if disableAccount:
+                decodedCustom['disable-account'] = 'Y'
             if appname.upper != "rustdesk".upper and appname != "":
                 decodedCustom['app-name'] = appname
             decodedCustom['override-settings'] = {}
