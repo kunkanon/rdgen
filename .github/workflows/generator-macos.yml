@@ -506,12 +506,6 @@ jobs:
         run: |
           mkdir -p ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS
 
-      - name: Embed custom client config
-        shell: bash
-        run: |
-          mkdir -p ./flutter/assets
-          echo -n "${{ env.custom }}" > ./flutter/assets/custom_.txt
-
       - name: Build rustdesk
         run: |
           if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
@@ -556,6 +550,31 @@ jobs:
           wget --no-check-certificate \
             -O "$ASSETS_DIR/logo.png" \
             "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}"
+
+      - name: Embed custom client config into app bundle
+        shell: bash
+        run: |
+          cd flutter/build/macos/Build/Products/Release
+          # RustDesk (macOS) reads the custom config from
+          # <App>.app/Contents/Resources/custom_.txt (source patched by allowCustom.py).
+          # This is what locks settings/permissions on the installed client.
+          # Prefer the real bundle (build.py is patched to output ${appname}.app).
+          # A bogus empty RustDesk.app may exist from icon steps' mkdir -p, so
+          # only treat RustDesk.app as valid if it has a real executable.
+          APP_DIR=""
+          if [ -d "${{ env.appname }}.app/Contents/MacOS" ]; then
+            APP_DIR="${{ env.appname }}.app"
+          elif [ -d "RustDesk.app/Contents/MacOS" ]; then
+            APP_DIR="RustDesk.app"
+          else
+            echo "App bundle not found for custom config embedding"
+            ls -la
+            exit 1
+          fi
+          RES_DIR="$APP_DIR/Contents/Resources"
+          mkdir -p "$RES_DIR"
+          printf '%s' "${{ env.custom }}" > "$RES_DIR/custom_.txt"
+          echo "Wrote custom config to $RES_DIR/custom_.txt ($(wc -c < "$RES_DIR/custom_.txt") bytes)"
 
       - name: Sign macOS app bundle
         if: env.MACOS_P12_BASE64 != ''
