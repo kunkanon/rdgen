@@ -733,6 +733,8 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y libarchive-tools libfuse2
           # set-up appimage-builder
+          # setuptools_scm>=10.2 breaks egg_info on Ubuntu runners (AttributeError: ignore_egg_info_in_manifest)
+          sudo pip3 install "setuptools_scm<10"
           sudo pip3 install git+https://github.com/rustdesk-org/appimage-builder.git
           # run appimage-builder
           pushd appimage
