@@ -583,6 +583,7 @@ jobs:
       # only x86_64 for arch since we can not find newest arm64 docker image to build
       # old arch image does not make sense for arch since it is "arch" which always update to date
       # and failed to makepkg arm64 on x86_64
+      # => aarch64.pkg.tar.zst is intentionally not produced
       - name: Patch archlinux PKGBUILD
         continue-on-error: true
         if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true' && env.VERSION != 'master'
@@ -618,7 +619,12 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+            PKG="./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst"
+            if [[ -f "$PKG" ]]; then
+              curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@$PKG" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+            else
+              echo "Skipping missing Arch package: $PKG"
+            fi
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -631,7 +637,12 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" ${{ env.apiServer }}/api/save_custom_client
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" ${{ env.apiServer }}/api/save_custom_client
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" ${{ env.apiServer }}/api/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" ${{ env.apiServer }}/api/save_custom_client || true
+            PKG="./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst"
+            if [[ -f "$PKG" ]]; then
+              curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@$PKG" ${{ env.apiServer }}/api/save_custom_client
+            else
+              echo "Skipping missing Arch package: $PKG"
+            fi
 
       - name: Upload deb
         uses: actions/upload-artifact@master
@@ -726,8 +737,19 @@ jobs:
       - name: Build appimage package
         shell: bash
         run: |
-          sed -ie "s|rustdesk|${{ env.filename }}|g" appimage/*
-          mv appimage/rustdesk.deb "appimage/${{ env.filename }}.deb"
+          # Keep .deb named rustdesk.deb and filesystem paths as usr/share/rustdesk/*
+          # (matches package contents). Only rebrand AppImage id/name/icon metadata.
+          # Global s/rustdesk/filename/ breaks exec -> FileNotFoundError on AppDir path.
+          for recipe in appimage/AppImageBuilder-*.yml; do
+            sed -i \
+              -e "s|^    id: rustdesk$|    id: ${{ env.filename }}|" \
+              -e "s|^    name: rustdesk$|    name: ${{ env.filename }}|" \
+              -e "s|^    icon: rustdesk$|    icon: ${{ env.filename }}|" \
+              -e "s|^    version: .*|    version: ${{ env.VERSION }}|" \
+              -e "s|apps/rustdesk\.png|apps/${{ env.filename }}.png|g" \
+              -e "s|apps/rustdesk\.svg|apps/${{ env.filename }}.svg|g" \
+              "$recipe"
+          done
 
           # install libarchive-tools for bsdtar command used in AppImageBuilder.yml
           sudo apt-get update -y
@@ -772,7 +794,8 @@ jobs:
         job:
           - {
               target: x86_64-unknown-linux-gnu,
-              distro: ubuntu18.04,
+              # ubuntu18.04 flatpak is too old (flathub summary exceeds 10MB limit)
+              distro: ubuntu22.04,
               on: ubuntu-22.04,
               arch: x86_64,
               suffix: "",
@@ -860,7 +883,12 @@ jobs:
           max_attempts: 3
           shell: bash
           command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+            f="./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak"
+            if [[ ! -f "$f" ]]; then
+              echo "Flatpak not produced, skipping upload: $f"
+              exit 0
+            fi
+            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@$f" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
           
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -870,7 +898,12 @@ jobs:
           max_attempts: 3
           shell: bash
           command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" ${{ env.apiServer }}/api/save_custom_client
+            f="./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak"
+            if [[ ! -f "$f" ]]; then
+              echo "Flatpak not produced, skipping upload: $f"
+              exit 0
+            fi
+            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@$f" ${{ env.apiServer }}/api/save_custom_client
 
   deploy:
     needs: [build-rustdesk-linux,build-flatpak,build-appimage]
