@@ -29,6 +29,11 @@ ZIP_PASSWORD = os.environ.get("ZIP_PASSWORD",'insecure')
 PROTOCOL = os.environ.get("PROTOCOL", 'https')
 REPONAME = os.environ.get("REPONAME", 'rdgen')
 SH_SECRET = os.environ.get('SH_SECRET', 'secret')
+# Protect generator UI (/, /generator). Leave callback paths open for GitHub Actions.
+RDGEN_BASIC_USER = os.environ.get('RDGEN_BASIC_USER', '')
+RDGEN_BASIC_PASSWORD = os.environ.get('RDGEN_BASIC_PASSWORD', '')
+# Local/dev only. Production must set BASIC creds (fail-closed without them).
+RDGEN_ALLOW_OPEN_UI = os.environ.get('RDGEN_ALLOW_OPEN_UI', '')
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -61,6 +66,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'rdgenerator.middleware.RdgenBasicAuthMiddleware',
 ]
 
 ROOT_URLCONF = 'rdgen.urls'

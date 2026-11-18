@@ -18,6 +18,9 @@ from .models import GithubRun
 from PIL import Image
 from urllib.parse import quote
 
+def healthz(request):
+    return HttpResponse('ok', content_type='text/plain')
+
 def generator_view(request):
     if request.method == 'POST':
         form = GenerateForm(request.POST, request.FILES)
@@ -286,17 +289,23 @@ def generator_view(request):
             temp_json_path = f"data_{uuid.uuid4()}.json"
             zip_filename = f"secrets_{uuid.uuid4()}.zip"
             zip_path = "temp_zips/%s" % (zip_filename)
-            Path("temp_zips").mkdir(parents=True, exist_ok=True)
+            try:
+                Path("temp_zips").mkdir(parents=True, exist_ok=True)
 
-            with open(temp_json_path, "w") as f:
-                json.dump(inputs_raw, f)
+                with open(temp_json_path, "w") as f:
+                    json.dump(inputs_raw, f)
 
-            with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_LZMA, encryption=pyzipper.WZ_AES) as zf:
-                zf.setpassword(_settings.ZIP_PASSWORD.encode())
-                zf.write(temp_json_path, arcname="secrets.json")
-
-            if os.path.exists(temp_json_path):
-                os.remove(temp_json_path)
+                with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_LZMA, encryption=pyzipper.WZ_AES) as zf:
+                    zf.setpassword(str(_settings.ZIP_PASSWORD).encode())
+                    zf.write(temp_json_path, arcname="secrets.json")
+            except Exception as e:
+                if os.path.exists(temp_json_path):
+                    os.remove(temp_json_path)
+                print(f"failed to prepare secrets zip: {e}")
+                return JsonResponse({"error": f"Failed to prepare build package: {str(e)}"}, status=500)
+            finally:
+                if os.path.exists(temp_json_path):
+                    os.remove(temp_json_path)
 
             zipJson = {}
             zipJson['url'] = full_url
@@ -317,7 +326,7 @@ def generator_view(request):
                 'Accept':  'application/vnd.github+json',
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer '+_settings.GHBEARER,
-                'X-GitHub-Api-Version': '2026-03-10'
+                'X-GitHub-Api-Version': '2022-11-28'
             }
             new_github_run = GithubRun(
                 uuid=myuuid,
@@ -327,16 +336,23 @@ def generator_view(request):
                 response = requests.post(url, json=data, headers=headers)
                 #print(response)
                 if response.status_code == 204 or response.status_code == 200:
-                    github_data = response.json()
+                    github_data = {}
+                    if response.content:
+                        try:
+                            github_data = response.json()
+                        except Exception:
+                            github_data = {}
                     print(github_data)
                     new_github_run.github_run_id = github_data.get('workflow_run_id')
                     new_github_run.status = "in_progress"
                     new_github_run.save()
+                    log_url = github_data.get('html_url') or f"https://github.com/{_settings.GHUSER}/{_settings.REPONAME}/actions"
 
-                    return render(request, 'waiting.html', {'filename':filename, 'uuid':myuuid, 'status':"Starting generator...please wait", 'platform':platform, 'log_url': github_data.get('html_url')})
+                    return render(request, 'waiting.html', {'filename':filename, 'uuid':myuuid, 'status':"Starting generator...please wait", 'platform':platform, 'log_url': log_url})
                 else:
                     #new_github_run.delete()
-                    return JsonResponse({"error": "GitHub rejected the start request"}, status=500)
+                    body = (response.text or '')[:300]
+                    return JsonResponse({"error": "GitHub rejected the start request", "status": response.status_code, "body": body}, status=500)
             except Exception as e:
                 #new_github_run.delete()
                 return JsonResponse({"error": f"Connection error: {str(e)}"}, status=500)
@@ -502,7 +518,7 @@ def startgh(request):
         'Accept':  'application/vnd.github+json',
         'Content-Type': 'application/json',
         'Authorization': 'Bearer '+_settings.GHBEARER,
-        'X-GitHub-Api-Version': '2026-03-10'
+        'X-GitHub-Api-Version': '2022-11-28'
     }
     response = requests.post(url, json=data, headers=headers)
     print(response)

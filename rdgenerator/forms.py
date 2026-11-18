@@ -5,7 +5,25 @@ class GenerateForm(forms.Form):
     sh_secret_field = forms.CharField(required=False)
     #Platform
     platform = forms.ChoiceField(choices=[('windows','Windows 64Bit'),('windows-x86','Windows 32Bit'),('linux','Linux'),('android','Android'),('macos','macOS')], initial='windows')
-    version = forms.ChoiceField(choices=[('master','nightly'),('1.4.9','1.4.9'),('1.4.8','1.4.8'),('1.4.7','1.4.7'),('1.4.6','1.4.6'),('1.4.5','1.4.5'),('1.4.4','1.4.4'),('1.4.3','1.4.3'),('1.4.2','1.4.2'),('1.4.1','1.4.1'),('1.4.0','1.4.0')], initial='1.4.9')
+    # Portal SaaS default is 1.5.3 — keep ChoiceField in sync or form.is_valid() fails
+    # and returns generator.html (HTTP 200) without filename/uuid → portal error.
+    version = forms.ChoiceField(choices=[
+        ('master', 'nightly'),
+        ('1.5.3', '1.5.3'),
+        ('1.5.2', '1.5.2'),
+        ('1.5.1', '1.5.1'),
+        ('1.5.0', '1.5.0'),
+        ('1.4.9', '1.4.9'),
+        ('1.4.8', '1.4.8'),
+        ('1.4.7', '1.4.7'),
+        ('1.4.6', '1.4.6'),
+        ('1.4.5', '1.4.5'),
+        ('1.4.4', '1.4.4'),
+        ('1.4.3', '1.4.3'),
+        ('1.4.2', '1.4.2'),
+        ('1.4.1', '1.4.1'),
+        ('1.4.0', '1.4.0'),
+    ], initial='1.5.3')
     help_text="'master' is the development version (nightly build) with the latest features but may be less stable"
     delayFix = forms.BooleanField(initial=True, required=False)
 
