@@ -1521,9 +1521,41 @@ jobs:
       - name: Build AppImage
         shell: bash
         run: |
-          # Keep .deb named rustdesk.deb and filesystem paths as usr/share/rustdesk/*
-          # (matches package contents). Only rebrand AppImage id/name/icon metadata.
-          # Global s/rustdesk/filename/ breaks exec -> FileNotFoundError on AppDir path.
+          # The .deb artifact is already rebranded to usr/share/<appname>/<appname>
+          # (see build-rustdesk-linux whitelabel sed). Stock AppImageBuilder recipes
+          # still point at usr/share/rustdesk/rustdesk — rewrite exec + lib path to
+          # match the package contents, and only rebrand id/name/icon metadata.
+          # Do NOT globally s/rustdesk/<filename>/: that broke unrelated apt names.
+          #
+          # Discover the launcher from the .deb (handles spaces in appname) instead
+          # of trusting env.appname alone.
+          APP="${{ env.appname }}"
+          EXEC_PATH=""
+          while IFS= read -r entry; do
+            rel="${entry#./}"
+            case "$rel" in
+              usr/share/*/*) ;;
+              *) continue ;;
+            esac
+            # Skip obvious non-binaries (nested paths / extensions).
+            case "$rel" in
+              */*/*/*) continue ;;
+              *.*) continue ;;
+            esac
+            parent="$(basename "$(dirname "$rel")")"
+            base="$(basename "$rel")"
+            if [ "$parent" = "$base" ]; then
+              EXEC_PATH="$rel"
+              break
+            fi
+          done < <(dpkg-deb -c appimage/rustdesk.deb | awk '{print $NF}')
+          if [ -z "$EXEC_PATH" ]; then
+            EXEC_PATH="usr/share/${APP}/${APP}"
+            echo "::warning::could not detect launcher in .deb; falling back to ${EXEC_PATH}"
+          fi
+          SHARE_DIR="$(dirname "$EXEC_PATH")"
+          echo "AppImage exec path: ${EXEC_PATH} (lib dir ${SHARE_DIR}/lib)"
+
           for recipe in appimage/AppImageBuilder-*.yml; do
             sed -i \
               -e "s|^    id: rustdesk$|    id: ${{ env.filename }}|" \
@@ -1532,7 +1564,11 @@ jobs:
               -e "s|^    version: .*|    version: ${{ env.VERSION }}|" \
               -e "s|apps/rustdesk\.png|apps/${{ env.filename }}.png|g" \
               -e "s|apps/rustdesk\.svg|apps/${{ env.filename }}.svg|g" \
+              -e "s|exec: usr/share/rustdesk/rustdesk|exec: \"${EXEC_PATH}\"|g" \
+              -e "s|usr/share/rustdesk/lib|${SHARE_DIR}/lib|g" \
               "$recipe"
+            echo "---- patched $recipe ----"
+            grep -E 'id:|name:|icon:|exec:|share/.*/lib' "$recipe" || true
           done
 
           # install libarchive-tools for bsdtar command used in AppImageBuilder.yml

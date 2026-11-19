@@ -599,9 +599,30 @@ jobs:
             sed -i -e "s/platform :osx, '.*'/platform :osx, '${MIN_MACOS_VERSION}'/" flutter/macos/Podfile
             sed -i -e "s/osx_minimum_system_version = \"[0-9]*.[0-9]*\"/osx_minimum_system_version = \"${MIN_MACOS_VERSION}\"/" Cargo.toml
             sed -i -e "s/MACOSX_DEPLOYMENT_TARGET = [0-9]*.[0-9]*;/MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION};/" flutter/macos/Runner.xcodeproj/project.pbxproj
+            # GHA macos-14 aarch64 has been hitting rustc SIGSEGV in LLVM
+            # InstCombine while fat-LTO'ing the `service` bin. Disable fat LTO
+            # (Cargo profile override) and serialize codegen a bit to avoid the
+            # compiler crash; x86_64 is unaffected and keeps default LTO.
+            export CARGO_PROFILE_RELEASE_LTO=false
+            export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+            echo "aarch64: CARGO_PROFILE_RELEASE_LTO=$CARGO_PROFILE_RELEASE_LTO CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
           fi
           sed -i -e "s/RustDesk.app/\"${{ env.appname }}.app\"/" build.py
+          # One automatic retry for transient rustc/runner crashes (SIGSEGV /
+          # runner preemption). Real compile errors fail both attempts.
+          set +e
           ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
+          rc=$?
+          if [ $rc -ne 0 ] && [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
+            echo "::warning::aarch64 build failed (rc=$rc); cleaning and retrying once with LTO=false"
+            cargo clean -p rustdesk || true
+            export CARGO_PROFILE_RELEASE_LTO=false
+            export CARGO_BUILD_JOBS=1
+            ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
+            rc=$?
+          fi
+          set -e
+          exit $rc
 
       # - name: Copy service file
       #   run: |
